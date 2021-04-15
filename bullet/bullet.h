@@ -13,6 +13,14 @@ typedef struct bulletBoxShape {
     void *p;
 } bulletBoxShape;
 
+typedef struct bulletGImpactMeshShape {
+    void *p;
+} bulletGImpactMeshShape;
+
+typedef struct bulletConvexHullShape {
+    void *p;
+} bulletConvexHullShape;
+
 typedef struct bulletCollisionObject {
     void *p;
 } bulletCollisionObject;
@@ -64,11 +72,21 @@ typedef struct bulletDynamicsWorld {
 
 extern bulletCollisionShape* GetBoxCollisionShape(bulletBoxShape* shape);
 extern bulletBoxShape* CreateBoxShape(float x, float y, float z);
+extern bulletGImpactMeshShape* CreateGImpactMeshShape(int vcount, float *v, int fcount, int *i);
+extern bulletCollisionShape* GetGImpactMeshShapeCollisionShape(bulletGImpactMeshShape* shape);
+extern bulletConvexHullShape* CreateConvexHullShape(int vcount, float *v);
+extern bulletCollisionShape* GetConvexHullCollisionShape(bulletConvexHullShape* shape);
 
 extern bulletRigidBody* CreateRigidBody(void* user_data,  float mass, bulletCollisionShape* shape);
 extern void RigidBodyGetOrigin(bulletRigidBody* body, float* v);
 extern void RigidBodyGetRotation(bulletRigidBody* body, float* v);
 extern void RigidBodySetFromOpenGLMatrix(bulletRigidBody* body, float* m);
+extern void RigidBodyApplyCentralForce(bulletRigidBody* body, float* m);
+extern void RigidBodyApplyForce(bulletRigidBody* b, float* m, float *rel);
+extern void RigidBodyApplyImpulse(bulletRigidBody* b, float* m, float *rel);
+extern void RigidBodyApplyTorque(bulletRigidBody* b, float* m);
+extern void RigidBodyApplyTorqueImpulse(bulletRigidBody* b, float* m);
+extern void RigidBodySetLinearVelocity(bulletRigidBody* b, float* m);
 
 extern bulletStaticPlaneShape* CreateStaticPlaneShape(float *normals,  float planeConstant);
 extern bulletCollisionShape* GetStaticPlaneCollisionShape(bulletStaticPlaneShape* shape);
@@ -85,6 +103,12 @@ extern bulletBroadphaseInterface* GetAxisSweep3BroadphaseInterface(bulletAxisSwe
 extern bulletConstraintSolver* CreateSequentialImpulseConstraintSolver();
 extern bulletDynamicsWorld* CreateDiscreteDynamicsWorld(bulletDispatcher* dispatcher, bulletBroadphaseInterface *pairCache, bulletConstraintSolver *constraintSolver, bulletCollisionConfiguration *collisionConfiguration);
 
+typedef struct DebugDraw {
+    int count;
+    float* verts;
+    float* colors;
+} DebugDraw;
+extern DebugDraw DynamicsWorldDebugDrawWorld(bulletDynamicsWorld* world);
 extern void DynamicsWorldSetGravity(bulletDynamicsWorld* world, float* gravity);
 extern void DynamicsWorldAddRigidBody(bulletDynamicsWorld* world, bulletRigidBody *body);
 extern void DynamicsWorldStepSimulation(bulletDynamicsWorld* world, float time);

@@ -1,4 +1,3 @@
-// Package bullet implements the core.PhysicsSystem interface by wrapping the Bullet physics library.
 package bullet
 
 // #cgo pkg-config: bullet
@@ -6,6 +5,8 @@ package bullet
 // #include "bullet.h"
 import "C"
 import (
+	"unsafe"
+
 	"github.com/go-gl/mathgl/mgl32"
 )
 
@@ -58,12 +59,87 @@ func (b BoxShape) GetCollisionShape() CollisionShape {
 func NewBoxShape(size mgl32.Vec3) BoxShape {
 	return BoxShape{
 		C.CreateBoxShape(C.float(size.X()), C.float(size.Y()), C.float(size.Z())),
-		//C.plNewBoxShape(C.plReal(size.X()), C.plReal(size.Y()), C.plReal(size.Z())),
+	}
+}
+
+type GImpactMeshShape struct {
+	handle *C.bulletGImpactMeshShape
+}
+
+func (b GImpactMeshShape) GetCollisionShape() CollisionShape {
+	return CollisionShape{C.GetGImpactMeshShapeCollisionShape(b.handle)}
+}
+
+func NewGImpactMeshShape(v []float32, faces []int) GImpactMeshShape {
+	return GImpactMeshShape{
+		C.CreateGImpactMeshShape(C.int(len(v)), (*C.float)(unsafe.Pointer(&v[0])), C.int(len(faces)), (*C.int)(unsafe.Pointer(&faces[0]))),
+	}
+}
+
+type ConvexHullShape struct {
+	handle *C.bulletConvexHullShape
+}
+
+func (b ConvexHullShape) GetCollisionShape() CollisionShape {
+	return CollisionShape{C.GetConvexHullCollisionShape(b.handle)}
+}
+
+func NewConvexHullShape(v []float32) ConvexHullShape {
+	return ConvexHullShape{
+		C.CreateConvexHullShape(C.int(len(v)), (*C.float)(unsafe.Pointer(&v[0]))),
+	}
+}
+
+type StaticPlaneShape struct {
+	handle *C.bulletStaticPlaneShape
+}
+
+func (b StaticPlaneShape) GetCollisionShape() CollisionShape {
+	return CollisionShape{C.GetStaticPlaneCollisionShape(b.handle)}
+}
+
+// NewStaticPlaneShape implements the core.PhysicsSystem interface
+func NewStaticPlaneShape(normal mgl32.Vec3, constant float64) StaticPlaneShape {
+	vec := vec3ToBullet(normal)
+	return StaticPlaneShape{
+		C.CreateStaticPlaneShape(&vec[0], C.float(constant)),
 	}
 }
 
 type RigidBody struct {
 	handle *C.bulletRigidBody
+}
+
+func (c RigidBody) ApplyCentralForce(v mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	C.RigidBodyApplyCentralForce(c.handle, &vec[0])
+}
+
+func (c RigidBody) ApplyForce(v mgl32.Vec3, relativePosition mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	r := vec3ToBullet(relativePosition)
+	C.RigidBodyApplyForce(c.handle, &vec[0], &r[0])
+}
+
+func (c RigidBody) ApplyImpulse(v mgl32.Vec3, relativePosition mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	r := vec3ToBullet(relativePosition)
+	C.RigidBodyApplyImpulse(c.handle, &vec[0], &r[0])
+}
+
+func (c RigidBody) ApplyTorque(v mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	C.RigidBodyApplyTorque(c.handle, &vec[0])
+}
+
+func (c RigidBody) ApplyTorqueImpulse(v mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	C.RigidBodyApplyTorqueImpulse(c.handle, &vec[0])
+}
+
+func (c RigidBody) SetLinearVelocity(v mgl32.Vec3) {
+	vec := vec3ToBullet(v)
+	C.RigidBodySetLinearVelocity(c.handle, &vec[0])
 }
 
 func (c RigidBody) GetOrigin() mgl32.Vec3 {
@@ -86,26 +162,8 @@ func (c RigidBody) SetFromOpenGLMatrix(m mgl32.Mat4) {
 	C.RigidBodySetFromOpenGLMatrix(c.handle, &i[0])
 }
 
-//c.body.SetWorldTransform(transform)
-
 func NewRigidBody(mass float32, shape CollisionShape) RigidBody {
 	return RigidBody{C.CreateRigidBody(nil, C.float(mass), shape.handle)}
-}
-
-type StaticPlaneShape struct {
-	handle *C.bulletStaticPlaneShape
-}
-
-func (b StaticPlaneShape) GetCollisionShape() CollisionShape {
-	return CollisionShape{C.GetStaticPlaneCollisionShape(b.handle)}
-}
-
-// NewStaticPlaneShape implements the core.PhysicsSystem interface
-func NewStaticPlaneShape(normal mgl32.Vec3, constant float64) StaticPlaneShape {
-	vec := vec3ToBullet(normal)
-	return StaticPlaneShape{
-		C.CreateStaticPlaneShape(&vec[0], C.float(constant)),
-	}
 }
 
 type DefaultCollisionConfiguration struct {
@@ -195,23 +253,19 @@ func (c DynamicsWorld) AddRigidBody(body RigidBody) {
 func (c DynamicsWorld) StepSimulation(t float32) {
 	C.DynamicsWorldStepSimulation(c.handle, C.float(t))
 }
+func (c DynamicsWorld) DebugDrawWorld() ([]float32, []float32) {
+	d := C.DynamicsWorldDebugDrawWorld(c.handle)
+
+	count := int(d.count)
+	v := make([]float32, count)
+	copy(v, (*[1 << 20]float32)(unsafe.Pointer(d.verts))[:])
+	cc := make([]float32, count)
+	copy(cc, (*[1 << 20]float32)(unsafe.Pointer(d.colors))[:])
+	return v, cc
+}
 
 func NewDiscreteDynamicsWorld(dispatcher Dispatcher, pairCache BroadphaseInterface, solver ConstraintSolver, config CollisionConfiguration) DynamicsWorld {
 	return DynamicsWorld{
 		C.CreateDiscreteDynamicsWorld(dispatcher.handle, pairCache.handle, solver.handle, config.handle),
 	}
 }
-
-/*
-	collisionConfiguration := bullet2.NewBtDefaultCollisionConfiguration()
-	dispatcher := bullet2.NewBtCollisionDispatcher(collisionConfiguration)
-	pairCache := bullet2.NewBtAxisSweep3(
-		bullet2.NewBtVector3__SWIG_1(-1000, -1000, -1000),
-		bullet2.NewBtVector3__SWIG_1(1000, 1000, 1000))
-	constraintSolver := bullet2.NewBtSequentialImpulseConstraintSolver()
-	world := bullet2.NewBtDiscreteDynamicsWorld(dispatcher.SwigGetBtDispatcher(),
-		pairCache.SwigGetBtBroadphaseInterface(),
-		constraintSolver, collisionConfiguration)
-	world.SetGravity(bullet2.NewBtVector3__SWIG_1(0, -2, 0))
-	boxShape := bullet2.NewBtBoxShape(bullet2.NewBtVector3__SWIG_1(1, 1, 1))
-*/

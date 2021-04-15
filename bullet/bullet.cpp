@@ -1,4 +1,7 @@
 #include "btBulletDynamicsCommon.h"
+#include "BulletCollision/CollisionShapes/btShapeHull.h"
+#include "BulletCollision/Gimpact/btGImpactShape.h"
+#include "BulletCollision/Gimpact/btGImpactCollisionAlgorithm.h"
 #include "bullet.h"
 
 class collisionShapeI {
@@ -53,6 +56,58 @@ bulletCollisionShape* GetBoxCollisionShape(bulletBoxShape* shape) {
 	return &box->bss;
 }
 
+class gImpactMeshShapeI : public collisionShapeI {
+public:
+	gImpactMeshShapeI(btGImpactMeshShape* box) : collisionShapeI(box), box(box)
+	{
+        bsp.p = this;
+	}
+    bulletGImpactMeshShape bsp;
+    btGImpactMeshShape *box;
+};
+
+
+bulletGImpactMeshShape* CreateGImpactMeshShape(int vn, float *v, int in, int *i) {
+	btTriangleIndexVertexArray* a = new btTriangleIndexVertexArray(in/3, i, 3*sizeof(int), vn, v,sizeof(float)*3);
+
+	btGImpactMeshShape * trimesh = new btGImpactMeshShape(a);
+	trimesh->setLocalScaling(btVector3(1.f,1.f,1.f));
+	//trimesh->setMargin(0.0f);
+	trimesh->setMargin(0.07f);
+	trimesh->updateBound();
+
+    gImpactMeshShapeI* impl = new gImpactMeshShapeI(trimesh);
+    return &impl->bsp;
+}
+
+bulletCollisionShape* GetGImpactMeshShapeCollisionShape(bulletGImpactMeshShape* shape) {
+    gImpactMeshShapeI *box = reinterpret_cast<gImpactMeshShapeI*>(shape->p);
+	return &box->bss;
+}
+
+class convexHullShapeI : public collisionShapeI {
+public:
+	convexHullShapeI(btConvexHullShape* box) : collisionShapeI(box), box(box)
+	{
+        bsp.p = this;
+	}
+    bulletConvexHullShape bsp;
+    btConvexHullShape *box;
+};
+
+bulletConvexHullShape* CreateConvexHullShape(int vn, float *v) {
+	btConvexHullShape* hull = new 	btConvexHullShape(v, vn/3, 12);
+	hull->optimizeConvexHull();
+
+    convexHullShapeI* impl = new convexHullShapeI(hull);
+    return &impl->bsp;
+}
+
+bulletCollisionShape* GetConvexHullCollisionShape(bulletConvexHullShape* shape) {
+    gImpactMeshShapeI *box = reinterpret_cast<gImpactMeshShapeI*>(shape->p);
+	return &box->bss;
+}
+
 bulletRigidBody* CreateRigidBody(void* user_data,  float mass, bulletCollisionShape* cshape)
 {
 	btTransform trans;
@@ -80,6 +135,7 @@ void RigidBodyGetOrigin(bulletRigidBody* b, float* v) {
 	v[1] = origin.getY();
 	v[2] = origin.getZ();
 }
+
 void RigidBodyGetRotation(bulletRigidBody* b, float* v) {
     rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
 	btQuaternion r = rb->rigid->getWorldTransform().getRotation();
@@ -92,6 +148,36 @@ void RigidBodyGetRotation(bulletRigidBody* b, float* v) {
 void RigidBodySetFromOpenGLMatrix(bulletRigidBody* b, float* m) {
     rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
 	rb->rigid->getWorldTransform().setFromOpenGLMatrix(m);
+}
+
+void RigidBodyApplyCentralForce(bulletRigidBody* b, float* m) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->applyCentralForce(btVector3(m[0], m[1], m[2]));
+}
+
+void RigidBodyApplyForce(bulletRigidBody* b, float* m, float *rel) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->applyForce(btVector3(m[0], m[1], m[2]), btVector3(rel[0], rel[1], rel[2]));
+}
+
+void RigidBodyApplyImpulse(bulletRigidBody* b, float* m, float *rel) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->applyImpulse(btVector3(m[0], m[1], m[2]), btVector3(rel[0], rel[1], rel[2]));
+}
+
+void RigidBodyApplyTorque(bulletRigidBody* b, float* m) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->applyTorque(btVector3(m[0], m[1], m[2]));
+}
+
+void RigidBodyApplyTorqueImpulse(bulletRigidBody* b, float* m) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->applyTorqueImpulse(btVector3(m[0], m[1], m[2]));
+}
+
+void RigidBodySetLinearVelocity(bulletRigidBody* b, float* m) {
+    rigidBodyI *rb = reinterpret_cast<rigidBodyI*>(b->p);
+	rb->rigid->setLinearVelocity(btVector3(m[0], m[1], m[2]));
 }
 
 class staticPlaneShapeI : public collisionShapeI {
@@ -226,15 +312,99 @@ bulletConstraintSolver* CreateSequentialImpulseConstraintSolver() {
 	return &impl->bpi;
 }
 
+#include <vector>
+
+class BulletDebugDrawer : public btIDebugDraw {
+	int _debugMode;
+
+public:
+
+	BulletDebugDrawer() {
+
+	}
+	virtual ~BulletDebugDrawer() {
+
+	}
+
+	std::vector<float> vertices;
+	std::vector<float> colors;
+
+	void clear() {
+		vertices.clear();
+		colors.clear();
+	}
+
+	virtual void   drawLine(const btVector3& from, const btVector3& to, const btVector3& fromColor, const btVector3& toColor) {
+		vertices.push_back(from.getX());
+		vertices.push_back(from.getY());
+		vertices.push_back(from.getZ());
+		colors.push_back(fromColor.getX());
+		colors.push_back(fromColor.getY());
+		colors.push_back(fromColor.getZ());
+		vertices.push_back(to.getX());
+		vertices.push_back(to.getY());
+		vertices.push_back(to.getZ());
+		colors.push_back(toColor.getX());
+		colors.push_back(toColor.getY());
+		colors.push_back(toColor.getZ());
+	}
+
+	virtual void   drawLine(const btVector3& from, const btVector3& to, const btVector3& color) {
+		vertices.push_back(from.getX());
+		vertices.push_back(from.getY());
+		vertices.push_back(from.getZ());
+
+		colors.push_back(color.getX());
+		colors.push_back(color.getY());
+		colors.push_back(color.getZ());
+
+		vertices.push_back(to.getX());
+		vertices.push_back(to.getY());
+		vertices.push_back(to.getZ());
+
+		colors.push_back(color.getX());
+		colors.push_back(color.getY());
+		colors.push_back(color.getZ());
+	}
+
+#ifdef never
+	virtual void   drawSphere(const btVector3& p, btScalar radius, const btVector3& color);
+
+	virtual void   drawTriangle(const btVector3& a, const btVector3& b, const btVector3& c, const btVector3& color, btScalar alpha);
+#endif
+	virtual void   drawContactPoint(const btVector3& PointOnB, const btVector3& normalOnB, btScalar distance, int lifeTime, const btVector3& color) {
+
+	}
+
+	virtual void   reportErrorWarning(const char* warningString) {
+		printf("warning %s\n", warningString);
+
+	}
+
+	virtual void   draw3dText(const btVector3& location, const char* textString) {
+		printf("3d text at %f %f %f: %s\n", location.getX(), location.getY(), location.getZ(), textString);
+
+	}
+
+	virtual void   setDebugMode(int debugMode) {
+		_debugMode = debugMode;
+	}
+
+	virtual int getDebugMode() const { return _debugMode; }
+};
+
 class bulletDynamicsWorldI {
 public:
-	bulletDynamicsWorldI(btDynamicsWorld* o) : world(o)
+	bulletDynamicsWorldI(btDynamicsWorld* o, BulletDebugDrawer* drawer) : world(o), debugDrawer(drawer)
 	{
         bcw.p = this;
 	}
     bulletDynamicsWorld bcw;
     btDynamicsWorld *world;
+	BulletDebugDrawer* debugDrawer;
 };
+
+
 
 bulletDynamicsWorld* CreateDiscreteDynamicsWorld(bulletDispatcher* dispatcher, bulletBroadphaseInterface *pairCache, bulletConstraintSolver *constraintSolver, bulletCollisionConfiguration *collisionConfiguration) {
 	btDynamicsWorld *world = new btDiscreteDynamicsWorld(
@@ -242,8 +412,33 @@ bulletDynamicsWorld* CreateDiscreteDynamicsWorld(bulletDispatcher* dispatcher, b
 		reinterpret_cast<bulletBroadphaseInterfaceI*>(pairCache->p)->broadphase,
 		reinterpret_cast<bulletConstraintSolverI*>(constraintSolver->p)->solver,
 		reinterpret_cast<collisionConfigurationI*>(collisionConfiguration->p)->config);
-	bulletDynamicsWorldI* impl = new bulletDynamicsWorldI(world);
+
+	BulletDebugDrawer * debugDrawer = new BulletDebugDrawer();
+	debugDrawer->setDebugMode(btIDebugDraw::DBG_DrawWireframe);
+	//debugDrawer->setDebugMode(btIDebugDraw::DBG_NoDebug);
+
+	world->setDebugDrawer(debugDrawer);
+
+// Necessary if we're going to use the GImpactCollisionShape.
+	//btGImpactCollisionAlgorithm::registerAlgorithm(static_cast<btCollisionDispatcher *>(reinterpret_cast<bulletDispatcherI*>(dispatcher->p)->dispatcher));
+
+	bulletDynamicsWorldI* impl = new bulletDynamicsWorldI(world, debugDrawer);
 	return &impl->bcw;
+}
+
+DebugDraw DynamicsWorldDebugDrawWorld(bulletDynamicsWorld* world) {
+    bulletDynamicsWorldI *w = reinterpret_cast<bulletDynamicsWorldI*>(world->p);
+	//printf("clear\n");
+	w->debugDrawer->clear();
+	//printf("draw\n");
+	w->world->debugDrawWorld();
+
+	//printf("return\n");
+	DebugDraw d;
+	d.count = int(w->debugDrawer->vertices.size());
+	d.verts = &w->debugDrawer->vertices[0];
+	d.colors = &w->debugDrawer->colors[0];
+	return d;
 }
 
 void DynamicsWorldSetGravity(bulletDynamicsWorld* world, float* gravity) {
